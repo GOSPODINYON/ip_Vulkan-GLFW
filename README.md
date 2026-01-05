@@ -1,4 +1,2 @@
 # ip_Vulkan-GLFW
-cd build \n /n
-make
-
+cd build/;make
