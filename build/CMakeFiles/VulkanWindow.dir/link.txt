@@ -1,1 +1,1 @@
-/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/VulkanWindow.dir/main.cpp.o -o VulkanWindow  -Wl,-rpath,/opt/homebrew/lib /Users/yon/VulkanSDK/1.4.328.1/macOS/lib/libvulkan.dylib /opt/homebrew/lib/libglfw.3.4.dylib
+/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/VulkanWindow.dir/main.cpp.o -o VulkanWindow  -Wl,-rpath,/opt/homebrew/lib /Users/yon/VulkanSDK/1.4.328.1/macOS/lib/libvulkan.dylib /opt/homebrew/lib/libglfw.3.4.dylib -framework Cocoa -framework IOKit -framework CoreVideo

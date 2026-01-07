@@ -3,7 +3,6 @@
 
 #include<iostream>
 #include<vector>
-#include<stdexcept>
 #include<thread>
 #include<atomic>
 #include<cmath>
@@ -13,10 +12,8 @@ public:
     void run(){
         initWindow();
         initVulkan();
-
         startAsyncLoop();
         mainLoop();
-
         cleanup();
     }
 
@@ -28,11 +25,15 @@ private:
     VkPhysicalDevice physicalDevice{};
     VkDevice device{};
     VkQueue graphicsQueue{};
-    uint32_t graphicsQueueFamily{};
+    uint32_t graphicsQueueFamily{0};
 
     VkSwapchainKHR swapChain{};
     VkFormat swapChainImageFormat{};
     VkExtent2D swapChainExtent{};
+
+    std::vector<VkImage>swapChainImages;
+    std::vector<VkImageView>swapChainImageViews;
+    std::vector<VkFramebuffer>swapChainFramebuffers;
 
     VkRenderPass renderPass{};
     VkCommandPool commandPool{};
@@ -41,24 +42,19 @@ private:
     VkSemaphore imageAvailableSemaphore{};
     VkSemaphore renderFinishedSemaphore{};
 
-    std::vector<VkImage>swapChainImages;
-    std::vector<VkImageView>swapChainImageViews;
-    std::vector<VkFramebuffer>swapChainFramebuffers;
-
-    VkClearValue clearColor{{0.0f,0.0f,0.0f,1.0f}};
+    VkClearValue clearColor{{0.f,0.f,0.f,1.f}};
 
     std::atomic<bool>running{true};
     std::thread asyncThread;
-
-    std::atomic<float>r{0.0f},g{0.0f},b{0.0f};
+    std::atomic<float>r{0.f},g{0.f},b{0.f};
 
     void startAsyncLoop(){
         asyncThread=std::thread([this]{
             while(running.load()){
-                float t=static_cast<float>(glfwGetTime());
-                r.store((sin(t)+1.0f)*0.5f);
-                g.store((cos(t)+1.0f)*0.5f);
-                b.store((sin(t*0.5f)+1.0f)*0.5f);
+                float t=(float)glfwGetTime();
+                r.store((sin(t)+1.f)*0.5f);
+                g.store((cos(t)+1.f)*0.5f);
+                b.store((sin(t*0.5f)+1.f)*0.5f);
             }
         });
     }
@@ -66,78 +62,61 @@ private:
     void mainLoop(){
         while(!glfwWindowShouldClose(window)){
             glfwPollEvents();
-
-            clearColor.color={r.load(),g.load(),b.load(),1.0f};
-
+            clearColor.color={r.load(),g.load(),b.load(),1.f};
             drawFrame();
         }
-
         running.store(false);
     }
 
     void drawFrame(){
         uint32_t imageIndex;
-        vkAcquireNextImageKHR(
-            device,
-            swapChain,
-            UINT64_MAX,
-            imageAvailableSemaphore,
-            VK_NULL_HANDLE,
-            &imageIndex
-        );
+        vkAcquireNextImageKHR(device,swapChain,UINT64_MAX,imageAvailableSemaphore,VK_NULL_HANDLE,&imageIndex);
 
         recordCommandBuffer(commandBuffers[imageIndex],imageIndex);
 
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        VkPipelineStageFlags waitStage=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-        VkSemaphore waitSemaphores[]={imageAvailableSemaphore};
-        VkPipelineStageFlags waitStages[]={
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-        };
+        VkSubmitInfo submit{};
+        submit.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.waitSemaphoreCount=1;
+        submit.pWaitSemaphores=&imageAvailableSemaphore;
+        submit.pWaitDstStageMask=&waitStage;
+        submit.commandBufferCount=1;
+        submit.pCommandBuffers=&commandBuffers[imageIndex];
+        submit.signalSemaphoreCount=1;
+        submit.pSignalSemaphores=&renderFinishedSemaphore;
 
-        submitInfo.waitSemaphoreCount=1;
-        submitInfo.pWaitSemaphores=waitSemaphores;
-        submitInfo.pWaitDstStageMask=waitStages;
-        submitInfo.commandBufferCount=1;
-        submitInfo.pCommandBuffers=&commandBuffers[imageIndex];
+        vkQueueSubmit(graphicsQueue,1,&submit,VK_NULL_HANDLE);
 
-        VkSemaphore signalSemaphores[]={renderFinishedSemaphore};
-        submitInfo.signalSemaphoreCount=1;
-        submitInfo.pSignalSemaphores=signalSemaphores;
+        VkPresentInfoKHR present{};
+        present.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        present.waitSemaphoreCount=1;
+        present.pWaitSemaphores=&renderFinishedSemaphore;
+        present.swapchainCount=1;
+        present.pSwapchains=&swapChain;
+        present.pImageIndices=&imageIndex;
 
-        vkQueueSubmit(graphicsQueue,1,&submitInfo,VK_NULL_HANDLE);
-
-        VkPresentInfoKHR presentInfo{};
-        presentInfo.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.waitSemaphoreCount=1;
-        presentInfo.pWaitSemaphores=signalSemaphores;
-        presentInfo.swapchainCount=1;
-        presentInfo.pSwapchains=&swapChain;
-        presentInfo.pImageIndices=&imageIndex;
-
-        vkQueuePresentKHR(graphicsQueue,&presentInfo);
+        vkQueuePresentKHR(graphicsQueue,&present);
         vkQueueWaitIdle(graphicsQueue);
     }
 
-    void recordCommandBuffer(VkCommandBuffer cmd,uint32_t imageIndex){
+    void recordCommandBuffer(VkCommandBuffer cmd,uint32_t index){
         vkResetCommandBuffer(cmd,0);
 
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        vkBeginCommandBuffer(cmd,&beginInfo);
+        VkCommandBufferBeginInfo begin{};
+        begin.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        vkBeginCommandBuffer(cmd,&begin);
 
         VkRenderPassBeginInfo rp{};
         rp.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         rp.renderPass=renderPass;
-        rp.framebuffer=swapChainFramebuffers[imageIndex];
+        rp.framebuffer=swapChainFramebuffers[index];
         rp.renderArea.extent=swapChainExtent;
         rp.clearValueCount=1;
         rp.pClearValues=&clearColor;
 
         vkCmdBeginRenderPass(cmd,&rp,VK_SUBPASS_CONTENTS_INLINE);
         vkCmdEndRenderPass(cmd);
-
         vkEndCommandBuffer(cmd);
     }
 
@@ -159,10 +138,6 @@ private:
         createCommandBuffers();
         createSyncObjects();
     }
-    
-    //================================================================
-    //------------------------ Vulkan helpers ------------------------
-    //================================================================
 
     void createInstance(){
         VkApplicationInfo app{};
@@ -203,7 +178,7 @@ private:
     }
 
     void createLogicalDevice(){
-        float prio=1.0f;
+        float prio=1.f;
 
         VkDeviceQueueCreateInfo q{};
         q.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -222,7 +197,6 @@ private:
 
         vkCreateDevice(physicalDevice,&info,nullptr,&device);
         vkGetDeviceQueue(device,0,0,&graphicsQueue);
-        graphicsQueueFamily=0;
     }
 
     void createSwapChain(){
@@ -238,8 +212,8 @@ private:
         info.imageExtent=swapChainExtent;
         info.imageArrayLayers=1;
         info.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        info.presentMode=VK_PRESENT_MODE_FIFO_KHR;
         info.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;
+        info.presentMode=VK_PRESENT_MODE_FIFO_KHR;
 
         vkCreateSwapchainKHR(device,&info,nullptr,&swapChain);
 
@@ -249,10 +223,89 @@ private:
         vkGetSwapchainImagesKHR(device,swapChain,&count,swapChainImages.data());
     }
 
-    //=============================================
-    //------------------ CLEANUP ------------------
-    //=============================================
-    
+    void createRenderPass(){
+        VkAttachmentDescription color{};
+        color.format=swapChainImageFormat;
+        color.samples=VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+        color.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        color.finalLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference ref{0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+
+        VkSubpassDescription sub{};
+        sub.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;
+        sub.colorAttachmentCount=1;
+        sub.pColorAttachments=&ref;
+
+        VkRenderPassCreateInfo info{};
+        info.sType=VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        info.attachmentCount=1;
+        info.pAttachments=&color;
+        info.subpassCount=1;
+        info.pSubpasses=&sub;
+
+        vkCreateRenderPass(device,&info,nullptr,&renderPass);
+    }
+
+    void createFramebuffers(){
+        swapChainImageViews.resize(swapChainImages.size());
+        swapChainFramebuffers.resize(swapChainImages.size());
+
+        for(size_t i=0;i<swapChainImages.size();i++){
+            VkImageViewCreateInfo view{};
+            view.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            view.image=swapChainImages[i];
+            view.viewType=VK_IMAGE_VIEW_TYPE_2D;
+            view.format=swapChainImageFormat;
+            view.subresourceRange.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+            view.subresourceRange.levelCount=1;
+            view.subresourceRange.layerCount=1;
+
+            vkCreateImageView(device,&view,nullptr,&swapChainImageViews[i]);
+
+            VkImageView att[]={swapChainImageViews[i]};
+
+            VkFramebufferCreateInfo fb{};
+            fb.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            fb.renderPass=renderPass;
+            fb.attachmentCount=1;
+            fb.pAttachments=att;
+            fb.width=swapChainExtent.width;
+            fb.height=swapChainExtent.height;
+            fb.layers=1;
+
+            vkCreateFramebuffer(device,&fb,nullptr,&swapChainFramebuffers[i]);
+        }
+    }
+
+    void createCommandPool(){
+        VkCommandPoolCreateInfo info{};
+        info.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        info.queueFamilyIndex=graphicsQueueFamily;
+        vkCreateCommandPool(device,&info,nullptr,&commandPool);
+    }
+
+    void createCommandBuffers(){
+        commandBuffers.resize(swapChainFramebuffers.size());
+
+        VkCommandBufferAllocateInfo info{};
+        info.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        info.commandPool=commandPool;
+        info.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        info.commandBufferCount=(uint32_t)commandBuffers.size();
+
+        vkAllocateCommandBuffers(device,&info,commandBuffers.data());
+    }
+
+    void createSyncObjects(){
+        VkSemaphoreCreateInfo info{};
+        info.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        vkCreateSemaphore(device,&info,nullptr,&imageAvailableSemaphore);
+        vkCreateSemaphore(device,&info,nullptr,&renderFinishedSemaphore);
+    }
+
     void cleanup(){
         running.store(false);
         if(asyncThread.joinable())asyncThread.join();
