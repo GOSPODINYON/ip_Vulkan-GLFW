@@ -19,12 +19,19 @@
 
 ## 📁 Структура проекта
 c++_Game_Engine/
+
 │── CMakeLists.txt
+
 │── main.cpp
+
 │── GLFW/              # GLFW headers
+
 │── build/             # build directory (НЕ коммитится)
+
 │── README.md
+
 │── .gitignore
+
 
 ---
 
